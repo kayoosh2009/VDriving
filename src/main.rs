@@ -1,6 +1,6 @@
 use bevy::prelude::*;
-use bevy::render::render_asset::RenderAssetUsages;
-use bevy::render::texture::{ImageSampler, ImageSamplerDescriptor}; // <-- ДОБАВИТЬ СЮДА
+use bevy::prelude::*;
+use bevy::image::{ImageSampler, ImageSamplerDescriptor, RenderAssetUsages};
 
 fn main() {
     App::new()
@@ -29,6 +29,7 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    mut images: ResMut<Assets<Image>>,
     asset_server: Res<AssetServer>,
 ) {
     // 1. Свет (Солнце)
@@ -40,20 +41,20 @@ fn setup(
         Transform::from_xyz(10.0, 20.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
-    // 2. БОЛЬШАЯ КАРТА (Клетчатый пол для понимания скорости и пространства)
+    // 2. БОЛЬШАЯ КАРТА (Генерируем клетчатый пол)
     let mut texture_data = vec![0u8; 16 * 16 * 4];
     for y in 0..16 {
         for x in 0..16 {
             let idx = (y * 16 + x) * 4;
             let is_dark = (x / 2 + y / 2) % 2 == 0;
-            let color = if is_dark { 40 } else { 80 };
+            let color = if is_dark { 50 } else { 100 };
             texture_data[idx] = color;     // R
             texture_data[idx + 1] = color; // G
             texture_data[idx + 2] = color; // B
             texture_data[idx + 3] = 255;   // A
         }
     }
-    let mut images = commands.get_resource_mut::<Assets<Image>>().unwrap();
+    
     let mut texture = Image::new_fill(
         bevy::render::render_resource::Extent3d {
             width: 16,
@@ -72,16 +73,15 @@ fn setup(
         Mesh3d(meshes.add(Plane3d::default().mesh().size(1000.0, 1000.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color_texture: Some(texture_handle),
-            base_color_texture_transform: bevy::math::Affine2::from_scale(Vec2::splat(100.0)).into(),
+            // Задаем повторение текстуры через UV-координаты меша
             ..default()
         })),
     ));
 
-    // 3. Машина (Загружаем только Гольф из .glb, старый куб удален!)
+    // 3. Машина (Загружаем Гольф из .glb через SceneRoot)
     commands.spawn((
-        Scene3d(asset_server.load("models/golf.glb#Scene0")), 
-        Transform::from_xyz(0.0, 0.0, 0.0)
-            .with_scale(Vec3::splat(1.0)),
+        SceneRoot(asset_server.load("models/golf.glb#Scene0")), 
+        Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(1.0)),
         Car { speed: 15.0 },
     ));
 
