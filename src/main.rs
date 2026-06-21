@@ -1,6 +1,6 @@
 use bevy::prelude::*;
-use bevy::prelude::*;
-use bevy::image::{ImageSampler, ImageSamplerDescriptor, RenderAssetUsages};
+use bevy::image::{ImageSampler, ImageSamplerDescriptor};
+use bevy::render::render_asset::RenderAssetUsages;
 
 fn main() {
     App::new()
