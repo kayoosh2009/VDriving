@@ -43,15 +43,6 @@ fn setup(
         MeshMaterial3d(materials.add(Color::rgb(0.2, 0.2, 0.2))), // Цвет асфальта
     ));
 
-    // Добавим пару ярких кубов-декораций (как будто здания), чтобы видеть, что мы едем
-    for z in [-20.0, -40.0, -60.0, 20.0, 40.0, 60.0] {
-        commands.spawn((
-            Mesh3d(meshes.add(Cuboid::new(4.0, 10.0, 4.0))), // Высокое "здание"
-            MeshMaterial3d(materials.add(Color::rgb(0.3, 0.4, 0.6))),
-            Transform::from_xyz(15.0, 5.0, z),
-        ));
-    }
-
     // 3. Машина (наш красный куб)
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::new(1.5, 1.0, 3.0))), // Сделали форму более вытянутой, как у тачки
@@ -66,15 +57,33 @@ fn setup(
         MainCamera,
         Transform::from_xyz(0.0, 6.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
+
+    // 5. Текст для спидометра в левом верхнем углу
+    commands.spawn((
+        Text::new("Скорость: 0 км/ч"),
+        TextFont {
+            font_size: 30.0,
+            ..default()
+        },
+        TextColor(Color::WHITE),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(20.0),
+            left: Val::Px(20.0),
+            ..default()
+        },
+    ));
 }
 
 // Управление машиной
+// Управление машиной и обновление спидометра
 fn move_car(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
-    mut query: Query<(&mut Transform, &Car)>,
+    mut car_query: Query<(&mut Transform, &Car)>,
+    mut text_query: Query<&mut Text>,
 ) {
-    if let Ok((mut transform, car)) = query.get_single_mut() {
+    if let Ok((mut transform, car)) = car_query.get_single_mut() {
         let mut direction = Vec3::ZERO;
 
         if keyboard_input.pressed(KeyCode::KeyW) || keyboard_input.pressed(KeyCode::ArrowUp) {
@@ -90,18 +99,32 @@ fn move_car(
             direction.x += 1.0;
         }
 
+        let mut current_speed_kmh = 0.0;
+
         if direction != Vec3::ZERO {
             direction = direction.normalize();
-            transform.translation += direction * car.speed * time.delta_secs();
             
-            // Поворачиваем "лицо" куба в сторону движения
+            // Вычисляем смещение
+            let movement = direction * car.speed * time.delta_secs();
+            transform.translation += movement;
+            
+            // Примерный перевод абстрактной скорости Bevy в "километры в час" для интерфейса
+            current_speed_kmh = car.speed * 4.0; 
+            
+            // Поворачиваем машину в сторону движения
             let target_rotation = Quat::from_rotation_y(direction.x.atan2(direction.z));
             transform.rotation = transform.rotation.lerp(target_rotation, 0.15);
+        }
+
+        // Обновляем текст спидометра
+        if let Ok(mut text) = text_query.get_single_mut() {
+            text.0 = format!("Скорость: {:.0} км/ч", current_speed_kmh);
         }
     }
 }
 
 // Система плавной слежки камеры за машиной
+// Система плавной слежки камеры с динамическим сдвигом по X
 fn camera_follow(
     car_query: Query<&Transform, (With<Car>, Without<MainCamera>)>,
     mut camera_query: Query<&mut Transform, (With<MainCamera>, Without<Car>)>,
@@ -109,14 +132,19 @@ fn camera_follow(
 ) {
     if let Ok(car_transform) = car_query.get_single() {
         if let Ok(mut camera_transform) = camera_query.get_single_mut() {
-            // Камера должна быть сзади и сверху машины
-            let target_camera_pos = car_transform.translation + Vec3::new(0.0, 5.0, 12.0);
+            // Узнаем, куда "смотрит" машина (её направление вперед)
+            let car_forward = car_transform.forward();
             
-            // Плавно передвигаем камеру к цели (интерполяция)
-            camera_transform.translation = camera_transform.translation.lerp(target_camera_pos, 4.0 * time.delta_secs());
+            // Камера пытается встать позади машины на основе её поворота, 
+            // создавая крутой динамический занос камеры на поворотах!
+            let target_camera_pos = car_transform.translation - car_forward * 12.0 + Vec3::new(0.0, 5.0, 0.0);
             
-            // Камера всегда смотрит на машину
-            camera_transform.look_at(car_transform.translation, Vec3::Y);
+            // Плавно двигаем камеру к этой точке
+            camera_transform.translation = camera_transform.translation.lerp(target_camera_pos, 3.0 * time.delta_secs());
+            
+            // Камера фокусируется чуть-чуть впереди машины, чтобы был виден горизонт
+            let look_target = car_transform.translation + car_forward * 2.0;
+            camera_transform.look_at(look_target, Vec3::Y);
         }
     }
 }
