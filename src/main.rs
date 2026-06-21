@@ -1,4 +1,6 @@
 use bevy::prelude::*;
+use bevy::render::render_asset::RenderAssetUsages;
+use bevy::render::texture::{ImageSampler, ImageSamplerDescriptor}; // <-- ДОБАВИТЬ СЮДА
 
 fn main() {
     App::new()
@@ -27,6 +29,7 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
     // 1. Свет (Солнце)
     commands.spawn((
@@ -37,18 +40,49 @@ fn setup(
         Transform::from_xyz(10.0, 20.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
-    // 2. БОЛЬШАЯ КАРТА (Пока просто огромная серая дорога-плоскость 500x500 метров)
+    // 2. БОЛЬШАЯ КАРТА (Клетчатый пол для понимания скорости и пространства)
+    let mut texture_data = vec![0u8; 16 * 16 * 4];
+    for y in 0..16 {
+        for x in 0..16 {
+            let idx = (y * 16 + x) * 4;
+            let is_dark = (x / 2 + y / 2) % 2 == 0;
+            let color = if is_dark { 40 } else { 80 };
+            texture_data[idx] = color;     // R
+            texture_data[idx + 1] = color; // G
+            texture_data[idx + 2] = color; // B
+            texture_data[idx + 3] = 255;   // A
+        }
+    }
+    let mut images = commands.get_resource_mut::<Assets<Image>>().unwrap();
+    let mut texture = Image::new_fill(
+        bevy::render::render_resource::Extent3d {
+            width: 16,
+            height: 16,
+            depth_or_array_layers: 1,
+        },
+        bevy::render::render_resource::TextureDimension::D2,
+        &texture_data,
+        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::RENDER_WORLD,
+    );
+    texture.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor::linear());
+    let texture_handle = images.add(texture);
+
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(500.0, 500.0))),
-        MeshMaterial3d(materials.add(Color::rgb(0.2, 0.2, 0.2))), // Цвет асфальта
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(1000.0, 1000.0))),
+        MeshMaterial3d(materials.add(StandardMaterial {
+            base_color_texture: Some(texture_handle),
+            base_color_texture_transform: bevy::math::Affine2::from_scale(Vec2::splat(100.0)).into(),
+            ..default()
+        })),
     ));
 
-    // 3. Машина (наш красный куб)
+    // 3. Машина (Загружаем только Гольф из .glb, старый куб удален!)
     commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(1.5, 1.0, 3.0))), // Сделали форму более вытянутой, как у тачки
-        MeshMaterial3d(materials.add(Color::rgb(0.8, 0.1, 0.1))),
-        Transform::from_xyz(0.0, 0.5, 0.0),
-        Car { speed: 15.0 }, // Увеличили скорость для фана
+        Scene3d(asset_server.load("models/golf.glb#Scene0")), 
+        Transform::from_xyz(0.0, 0.0, 0.0)
+            .with_scale(Vec3::splat(1.0)),
+        Car { speed: 15.0 },
     ));
 
     // 4. Камера с маркером MainCamera
@@ -58,18 +92,18 @@ fn setup(
         Transform::from_xyz(0.0, 6.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
 
-    // 5. Текст для спидометра в левом верхнем углу
+    // 5. Текст для спидометра в ЛЕВОМ НИЖНЕМ углу
     commands.spawn((
-        Text::new("Скорость: 0 км/ч"),
+        Text::new("Speed: 0 km/h"),
         TextFont {
-            font_size: 30.0,
+            font_size: 35.0,
             ..default()
         },
         TextColor(Color::WHITE),
         Node {
             position_type: PositionType::Absolute,
-            top: Val::Px(20.0),
-            left: Val::Px(20.0),
+            bottom: Val::Px(30.0),
+            left: Val::Px(30.0),
             ..default()
         },
     ));
@@ -118,7 +152,7 @@ fn move_car(
 
         // Обновляем текст спидометра
         if let Ok(mut text) = text_query.get_single_mut() {
-            text.0 = format!("Скорость: {:.0} км/ч", current_speed_kmh);
+            text.0 = format!("Speed: {:.0} km/h", current_speed_kmh);
         }
     }
 }
