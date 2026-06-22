@@ -2,8 +2,18 @@ use bevy::prelude::*;
 use bevy::image::{ImageSampler, ImageSamplerDescriptor};
 use bevy::render::render_asset::RenderAssetUsages;
 
+mod menu;
+
+#[derive(States, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
+pub enum GameState {
+    #[default]
+    MainMenu, // Игра стартует в главном меню
+    InGame,   // Сама гонка
+}
+
 fn main() {
     App::new()
+        .init_state::<GameState>() // Регистрируем состояния в Bevy
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "VDriving - Vibe Cruise".into(),
@@ -11,8 +21,16 @@ fn main() {
             }),
             ..default()
         }))
-        .add_systems(Startup, setup)
-        .add_systems(Update, (move_car, camera_follow).chain()) // Камера обновляется ПОСЛЕ машины
+        .add_plugins(menu::menu_plugin) // Подключаем плагин меню!
+        // Системы игрового мира инициализируем только при ВХОДЕ в режим игры
+        .add_systems(OnEnter(GameState::InGame), setup)
+        // Управление и камеру обновляем ТОЛЬКО во время самой игры
+        .add_systems(
+            Update,
+            (move_car, camera_follow)
+                .chain()
+                .run_if(in_state(GameState::InGame)),
+        )
         .run();
 }
 
