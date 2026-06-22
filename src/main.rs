@@ -18,7 +18,12 @@ fn main() {
 
 #[derive(Component)]
 struct Car {
-    speed: f32,
+    current_speed: f32, // Текущая скорость машины
+    max_speed: f32,     // Максимальная скорость вперед
+    acceleration: f32,  // Сила разгона
+    deceleration: f32,  // Сила трения (когда бросаешь газ)
+    rotation_speed: f32,// Скорость поворота руля
+    angle: f32,         // Текущий угол направления машины
 }
 
 // Маркер для камеры, чтобы мы знали, какую именно двигать
@@ -82,7 +87,14 @@ fn setup(
     commands.spawn((
         SceneRoot(asset_server.load("models/golf.glb#Scene0")), 
         Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(1.0)),
-        Car { speed: 15.0 },
+        Car {
+            current_speed: 0.0,
+            max_speed: 30.0,      // Максималка в Bevy-метрах
+            acceleration: 15.0,   // Как быстро разгоняется
+            deceleration: 8.0,    // Как быстро тормозит сама
+            rotation_speed: 2.2,  // Насколько резко поворачивает руль
+            angle: 0.0,           // Стартовый угол (смотрит вперед)
+        },
     ));
 
     // 4. Камера с маркером MainCamera
@@ -109,50 +121,69 @@ fn setup(
     ));
 }
 
-// Управление машиной
-// Управление машиной и обновление спидометра
+// Настоящее автомобильное управление и плавный разгон
 fn move_car(
     keyboard_input: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
-    mut car_query: Query<(&mut Transform, &Car)>,
+    mut car_query: Query<(&mut Transform, &mut Car)>,
     mut text_query: Query<&mut Text>,
 ) {
-    if let Ok((mut transform, car)) = car_query.get_single_mut() {
-        let mut direction = Vec3::ZERO;
+    if let Ok((mut transform, mut car)) = car_query.get_single_mut() {
+        let dt = time.delta_secs();
 
-        if keyboard_input.pressed(KeyCode::KeyW) || keyboard_input.pressed(KeyCode::ArrowUp) {
-            direction.z -= 1.0;
-        }
-        if keyboard_input.pressed(KeyCode::KeyS) || keyboard_input.pressed(KeyCode::ArrowDown) {
-            direction.z += 1.0;
-        }
+        // 1. ПОВОРОТЫ (Управляем углом, только если машина движется)
+        // Если едем назад, управление инвертируется (как в реальной жизни!)
+        let speed_factor = (car.current_speed / car.max_speed).abs().clamp(0.0, 1.0);
+        let direction_modifier = if car.current_speed >= 0.0 { 1.0 } else { -1.0 };
+
         if keyboard_input.pressed(KeyCode::KeyA) || keyboard_input.pressed(KeyCode::ArrowLeft) {
-            direction.x -= 1.0;
+            car.angle += car.rotation_speed * speed_factor * direction_modifier * dt;
         }
         if keyboard_input.pressed(KeyCode::KeyD) || keyboard_input.pressed(KeyCode::ArrowRight) {
-            direction.x += 1.0;
+            car.angle -= car.rotation_speed * speed_factor * direction_modifier * dt;
         }
 
-        let mut current_speed_kmh = 0.0;
+        // 2. РАЗГОН И ТОРМОЖЕНИЕ (W и S)
+        let mut pressing_gas = false;
 
-        if direction != Vec3::ZERO {
-            direction = direction.normalize();
-            
-            // Вычисляем смещение
-            let movement = direction * car.speed * time.delta_secs();
-            transform.translation += movement;
-            
-            // Примерный перевод абстрактной скорости Bevy в "километры в час" для интерфейса
-            current_speed_kmh = car.speed * 4.0; 
-            
-            // Поворачиваем машину в сторону движения
-            let target_rotation = Quat::from_rotation_y(direction.x.atan2(direction.z));
-            transform.rotation = transform.rotation.lerp(target_rotation, 0.15);
+        if keyboard_input.pressed(KeyCode::KeyW) || keyboard_input.pressed(KeyCode::ArrowUp) {
+            car.current_speed += car.acceleration * dt;
+            if car.current_speed > car.max_speed {
+                car.current_speed = car.max_speed;
+            }
+            pressing_gas = true;
+        }
+        if keyboard_input.pressed(KeyCode::KeyS) || keyboard_input.pressed(KeyCode::ArrowDown) {
+            car.current_speed -= car.acceleration * dt;
+            if car.current_speed < -car.max_speed * 0.5 { // Назад едем в два раза медленнее максимума
+                car.current_speed = -car.max_speed * 0.5;
+            }
+            pressing_gas = true;
         }
 
-        // Обновляем текст спидометра
+        // Плавное торможение (трение), когда мы отпускаем все педали
+        if !pressing_gas {
+            if car.current_speed > 0.0 {
+                car.current_speed -= car.deceleration * dt;
+                if car.current_speed < 0.0 { car.current_speed = 0.0; }
+            } else if car.current_speed < 0.0 {
+                car.current_speed += car.deceleration * dt;
+                if car.current_speed > 0.0 { car.current_speed = 0.0; }
+            }
+        }
+
+        // 3. ПЕРЕМЕЩЕНИЕ И ВРАЩЕНИЕ В ПРОСТРАНСТВЕ
+        // Применяем текущий поворот к машине
+        transform.rotation = Quat::from_rotation_y(car.angle);
+
+        // Двигаем машину вперед относительно её собственного направления (ось -Z в Bevy)
+        let forward = transform.forward();
+        transform.translation += forward * car.current_speed * dt;
+
+        // 4. ОБНОВЛЕНИЕ СПИДОМЕТРА (Переводим скорость в км/ч для красоты)
+        let display_speed = (car.current_speed * 4.0).abs();
         if let Ok(mut text) = text_query.get_single_mut() {
-            text.0 = format!("Speed: {:.0} km/h", current_speed_kmh);
+            text.0 = format!("Speed: {:.0} km/h", display_speed);
         }
     }
 }
