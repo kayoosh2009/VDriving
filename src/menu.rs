@@ -62,7 +62,7 @@ fn spawn_menu(mut commands: Commands) {
                         ..default()
                     },
                     BorderColor(Color::WHITE),
-                    BackgroundColor(Color::rgb(0.15, 0.15, 0.15)),
+                    BackgroundColor(Color::srgb(0.15, 0.15, 0.15)),
                 ))
                 .with_children(|button| {
                     button.spawn((
@@ -92,10 +92,10 @@ fn button_system(
                 next_state.set(GameState::InGame);
             }
             Interaction::Hovered => {
-                *background_color = BackgroundColor(Color::rgb(0.25, 0.25, 0.25));
+                *background_color = BackgroundColor(Color::srgb(0.25, 0.25, 0.25));
             }
             Interaction::None => {
-                *background_color = BackgroundColor(Color::rgb(0.15, 0.15, 0.15));
+                *background_color = BackgroundColor(Color::srgb(0.15, 0.15, 0.15));
             }
         }
     }

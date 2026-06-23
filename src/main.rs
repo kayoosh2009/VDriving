@@ -13,7 +13,6 @@ pub enum GameState {
 
 fn main() {
     App::new()
-        .init_state::<GameState>() // Регистрируем состояния в Bevy
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "VDriving - Vibe Cruise".into(),
@@ -21,6 +20,7 @@ fn main() {
             }),
             ..default()
         }))
+        .init_state::<GameState>() // ✅ Теперь плагины загружаются первыми
         .add_plugins(menu::menu_plugin) // Подключаем плагин меню!
         // Системы игрового мира инициализируем только при ВХОДЕ в режим игры
         .add_systems(OnEnter(GameState::InGame), setup)
