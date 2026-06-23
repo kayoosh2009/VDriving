@@ -1,6 +1,5 @@
 use bevy::prelude::*;
-use bevy::image::{ImageSampler, ImageSamplerDescriptor};
-use bevy::render::render_asset::RenderAssetUsages;
+use bevy::input::mouse::{MouseMotion, MouseWheel};
 
 mod menu;
 
@@ -62,7 +61,6 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut images: ResMut<Assets<Image>>,
     asset_server: Res<AssetServer>,
 ) {
     // 1. Свет (Солнце)
@@ -232,7 +230,7 @@ fn free_look_camera(
         // 1. Обработка зума (колесико)
         for event in scroll_events.read() {
             // Двигаем камеру вперед/назад по направлению взгляда
-            let forward = cam_transform.forward();
+            let forward = cam_transform.forward().as_vec3();
             cam_transform.translation += forward * event.y * 5.0 * time.delta_secs();
         }
 
