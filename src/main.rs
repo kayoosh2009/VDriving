@@ -101,10 +101,12 @@ fn setup(
         })),
     ));
 
+    let scale_factor = 1.0;
+
     // 3. Машина (Загружаем Гольф из .glb через SceneRoot)
     commands.spawn((
-        SceneRoot(asset_server.load("models/golf.glb#Scene0")), 
-        Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(1.0)),
+        SceneRoot(asset_server.load("models/Porsche_911_GT2/Porsche_911_GT2.glb#Scene0")), // Укажи здесь точное имя твоего нового .glb файла
+        Transform::from_xyz(0.0, 0.0, 0.0).with_scale(Vec3::splat(scale_factor)),
         Car {
             current_speed: 0.0,
             max_speed: 30.0,      // Максималка в Bevy-метрах
