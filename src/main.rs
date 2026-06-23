@@ -27,11 +27,21 @@ fn main() {
         // Управление и камеру обновляем ТОЛЬКО во время самой игры
         .add_systems(
             Update,
-            (move_car, camera_follow)
+            (move_car, camera_follow, free_look_camera)
                 .chain()
                 .run_if(in_state(GameState::InGame)),
         )
         .run();
+}
+
+// Маркер для камеры, которую можно двигать вручную
+#[derive(Component)]
+struct FreeLookCamera;
+
+// Состояние захвата мыши для вращения камеры
+#[derive(Resource, Default)]
+struct MouseGrabState {
+    is_grabbed: bool,
 }
 
 #[derive(Component)]
@@ -65,38 +75,13 @@ fn setup(
     ));
 
     // 2. БОЛЬШАЯ КАРТА (Генерируем клетчатый пол)
-    let mut texture_data = vec![0u8; 16 * 16 * 4];
-    for y in 0..16 {
-        for x in 0..16 {
-            let idx = (y * 16 + x) * 4;
-            let is_dark = (x / 2 + y / 2) % 2 == 0;
-            let color = if is_dark { 50 } else { 100 };
-            texture_data[idx] = color;     // R
-            texture_data[idx + 1] = color; // G
-            texture_data[idx + 2] = color; // B
-            texture_data[idx + 3] = 255;   // A
-        }
-    }
-    
-    let mut texture = Image::new_fill(
-        bevy::render::render_resource::Extent3d {
-            width: 16,
-            height: 16,
-            depth_or_array_layers: 1,
-        },
-        bevy::render::render_resource::TextureDimension::D2,
-        &texture_data,
-        bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
-        RenderAssetUsages::RENDER_WORLD,
-    );
-    texture.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor::linear());
-    let texture_handle = images.add(texture);
+    let texture_handle = asset_server.load("floor.png");
 
     commands.spawn((
         Mesh3d(meshes.add(Plane3d::default().mesh().size(1000.0, 1000.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
             base_color_texture: Some(texture_handle),
-            // Задаем повторение текстуры через UV-координаты меша
+            // Важно: чтобы текстура повторялась, а не растягивалась
             ..default()
         })),
     ));
@@ -120,6 +105,7 @@ fn setup(
     // 4. Камера с маркером MainCamera
     commands.spawn((
         Camera3d::default(),
+        FreeLookCamera,
         MainCamera,
         Transform::from_xyz(0.0, 6.0, 10.0).looking_at(Vec3::ZERO, Vec3::Y),
     ));
@@ -230,6 +216,52 @@ fn camera_follow(
             // Камера фокусируется чуть-чуть впереди машины, чтобы был виден горизонт
             let look_target = car_transform.translation + car_forward * 2.0;
             camera_transform.look_at(look_target, Vec3::Y);
+        }
+    }
+}
+
+fn free_look_camera(
+    mouse_input: Res<ButtonInput<MouseButton>>,
+    mut mouse_motion: EventReader<MouseMotion>,
+    mut scroll_events: EventReader<MouseWheel>,
+    time: Res<Time>,
+    mut camera_query: Query<&mut Transform, With<FreeLookCamera>>,
+    mut grab_state: ResMut<MouseGrabState>,
+) {
+    if let Ok(mut cam_transform) = camera_query.get_single_mut() {
+        // 1. Обработка зума (колесико)
+        for event in scroll_events.read() {
+            // Двигаем камеру вперед/назад по направлению взгляда
+            let forward = cam_transform.forward();
+            cam_transform.translation += forward * event.y * 5.0 * time.delta_secs();
+        }
+
+        // 2. Логика захвата мыши (ПКМ)
+        if mouse_input.just_pressed(MouseButton::Right) {
+            grab_state.is_grabbed = true;
+        }
+        if mouse_input.just_released(MouseButton::Right) {
+            grab_state.is_grabbed = false;
+        }
+
+        // 3. Вращение камеры, если мышь захвачена
+        if grab_state.is_grabbed {
+            for event in mouse_motion.read() {
+                let sensitivity = 0.005;
+                
+                // Вращение вокруг вертикальной оси (Y) - влево/вправо
+                let yaw = Quat::from_rotation_y(-event.delta.x * sensitivity);
+                
+                // Вращение вокруг горизонтальной оси (X) - вверх/вниз
+                // Ограничиваем угол, чтобы не перевернуться вверх ногами
+                let pitch = Quat::from_rotation_x(-event.delta.y * sensitivity);
+                
+                cam_transform.rotation = yaw * cam_transform.rotation * pitch;
+            }
+        } else {
+            // Очищаем события движения мыши, если она не захвачена, 
+            // чтобы камера не дергалась при обычном движении курсора
+            mouse_motion.clear();
         }
     }
 }
