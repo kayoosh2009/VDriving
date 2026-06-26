@@ -261,17 +261,20 @@ fn free_look_camera(
         for event in mouse_motion.read() {
             let sensitivity = 0.003;
             
+            // ✅ ИСПРАВЛЕНИЕ: копируем translation в отдельную переменную
+            let current_position = cam_transform.translation;
+            
             // Вращение вокруг мировой оси Y (влево/вправо)
             cam_transform.rotate_around(
-                cam_transform.translation,
+                current_position,
                 Quat::from_rotation_y(-event.delta.x * sensitivity)
             );
             
             // Вращение вокруг локальной оси X (вверх/вниз)
             cam_transform.rotate_local_x(-event.delta.y * sensitivity);
             
-            // Ограничение угла наклона
-            let (roll, pitch, yaw) = cam_transform.rotation.to_euler(EulerRot::YXZ);
+            // ✅ ИСПРАВЛЕНИЕ: убираем неиспользуемую переменную roll
+            let (_roll, pitch, yaw) = cam_transform.rotation.to_euler(EulerRot::YXZ);
             let clamped_pitch = pitch.clamp(-1.2, 1.2);
             cam_transform.rotation = Quat::from_euler(EulerRot::YXZ, yaw, clamped_pitch, 0.0);
         }
