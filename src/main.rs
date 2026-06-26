@@ -28,10 +28,9 @@ fn main() {
         }))
         .init_state::<GameState>()
         .init_state::<CameraMode>()
-        .add_plugins(menu::menu_plugin) // Подключаем плагин меню!
-        // Системы игрового мира инициализируем только при ВХОДЕ в режим игры
+        .init_resource::<MouseGrabState>() 
+        .add_plugins(menu::menu_plugin)
         .add_systems(OnEnter(GameState::InGame), setup)
-        // Управление и камеру обновляем ТОЛЬКО во время самой игры
         .add_systems(
             Update,
             (move_car, camera_follow, free_look_camera)
