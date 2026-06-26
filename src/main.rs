@@ -10,6 +10,13 @@ pub enum GameState {
     InGame,   // Сама гонка
 }
 
+#[derive(States, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
+pub enum CameraMode {
+    #[default]
+    Follow,    // Камера следует за машиной
+    FreeLook,  // Свободный осмотр
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
@@ -19,7 +26,8 @@ fn main() {
             }),
             ..default()
         }))
-        .init_state::<GameState>() // ✅ Теперь плагины загружаются первыми
+        .init_state::<GameState>()
+        .init_state::<CameraMode>()
         .add_plugins(menu::menu_plugin) // Подключаем плагин меню!
         // Системы игрового мира инициализируем только при ВХОДЕ в режим игры
         .add_systems(OnEnter(GameState::InGame), setup)
@@ -192,26 +200,25 @@ fn move_car(
     }
 }
 
-// Система плавной слежки камеры за машиной
 // Система плавной слежки камеры с динамическим сдвигом по X
 fn camera_follow(
     car_query: Query<&Transform, (With<Car>, Without<MainCamera>)>,
     mut camera_query: Query<&mut Transform, (With<MainCamera>, Without<Car>)>,
     time: Res<Time>,
+    camera_mode: Res<State<CameraMode>>,
 ) {
+    // Работаем только в режиме Follow
+    if *camera_mode.get() != CameraMode::Follow {
+        return;
+    }
+
     if let Ok(car_transform) = car_query.get_single() {
         if let Ok(mut camera_transform) = camera_query.get_single_mut() {
-            // Узнаем, куда "смотрит" машина (её направление вперед)
             let car_forward = car_transform.forward();
-            
-            // Камера пытается встать позади машины на основе её поворота, 
-            // создавая крутой динамический занос камеры на поворотах!
             let target_camera_pos = car_transform.translation - car_forward * 12.0 + Vec3::new(0.0, 5.0, 0.0);
             
-            // Плавно двигаем камеру к этой точке
             camera_transform.translation = camera_transform.translation.lerp(target_camera_pos, 3.0 * time.delta_secs());
             
-            // Камера фокусируется чуть-чуть впереди машины, чтобы был виден горизонт
             let look_target = car_transform.translation + car_forward * 2.0;
             camera_transform.look_at(look_target, Vec3::Y);
         }
@@ -225,41 +232,48 @@ fn free_look_camera(
     time: Res<Time>,
     mut camera_query: Query<&mut Transform, With<FreeLookCamera>>,
     mut grab_state: ResMut<MouseGrabState>,
+    mut camera_mode: ResMut<NextState<CameraMode>>,
 ) {
     if let Ok(mut cam_transform) = camera_query.get_single_mut() {
+        // Переключение режима по ПКМ
+        if mouse_input.just_pressed(MouseButton::Right) {
+            grab_state.is_grabbed = true;
+            camera_mode.set(CameraMode::FreeLook);
+        }
+        if mouse_input.just_released(MouseButton::Right) {
+            grab_state.is_grabbed = false;
+            camera_mode.set(CameraMode::Follow);
+        }
+
+        // Работаем только в режиме FreeLook
+        if !grab_state.is_grabbed {
+            mouse_motion.clear();
+            return;
+        }
+
         // 1. Обработка зума (колесико)
         for event in scroll_events.read() {
-            // Двигаем камеру вперед/назад по направлению взгляда
             let forward = cam_transform.forward().as_vec3();
             cam_transform.translation += forward * event.y * 5.0 * time.delta_secs();
         }
 
-        // 2. Логика захвата мыши (ПКМ)
-        if mouse_input.just_pressed(MouseButton::Right) {
-            grab_state.is_grabbed = true;
-        }
-        if mouse_input.just_released(MouseButton::Right) {
-            grab_state.is_grabbed = false;
-        }
-
-        // 3. Вращение камеры, если мышь захвачена
-        if grab_state.is_grabbed {
-            for event in mouse_motion.read() {
-                let sensitivity = 0.005;
-                
-                // Вращение вокруг вертикальной оси (Y) - влево/вправо
-                let yaw = Quat::from_rotation_y(-event.delta.x * sensitivity);
-                
-                // Вращение вокруг горизонтальной оси (X) - вверх/вниз
-                // Ограничиваем угол, чтобы не перевернуться вверх ногами
-                let pitch = Quat::from_rotation_x(-event.delta.y * sensitivity);
-                
-                cam_transform.rotation = yaw * cam_transform.rotation * pitch;
-            }
-        } else {
-            // Очищаем события движения мыши, если она не захвачена, 
-            // чтобы камера не дергалась при обычном движении курсора
-            mouse_motion.clear();
+        // 2. Вращение камеры
+        for event in mouse_motion.read() {
+            let sensitivity = 0.003;
+            
+            // Вращение вокруг мировой оси Y (влево/вправо)
+            cam_transform.rotate_around(
+                cam_transform.translation,
+                Quat::from_rotation_y(-event.delta.x * sensitivity)
+            );
+            
+            // Вращение вокруг локальной оси X (вверх/вниз)
+            cam_transform.rotate_local_x(-event.delta.y * sensitivity);
+            
+            // Ограничение угла наклона
+            let (roll, pitch, yaw) = cam_transform.rotation.to_euler(EulerRot::YXZ);
+            let clamped_pitch = pitch.clamp(-1.2, 1.2);
+            cam_transform.rotation = Quat::from_euler(EulerRot::YXZ, yaw, clamped_pitch, 0.0);
         }
     }
 }
