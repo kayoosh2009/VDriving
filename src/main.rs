@@ -13,8 +13,9 @@ pub enum GameState {
 #[derive(States, Debug, Clone, Copy, Eq, PartialEq, Hash, Default)]
 pub enum CameraMode {
     #[default]
-    Follow,    // Камера следует за машиной
-    FreeLook,  // Свободный осмотр
+    Back,  // Сзади
+    Front, // Спереди
+    Free,  // Свободная
 }
 
 fn main() {
@@ -33,7 +34,7 @@ fn main() {
         .add_systems(OnEnter(GameState::InGame), setup)
         .add_systems(
             Update,
-            (move_car, camera_follow, free_look_camera)
+            (move_car, switch_camera_mode, camera_follow, free_look_camera)
                 .chain()
                 .run_if(in_state(GameState::InGame)),
         )
@@ -199,6 +200,22 @@ fn move_car(
     }
 }
 
+// Система переключения камеры по кнопке V
+fn switch_camera_mode(
+    keyboard_input: Res<ButtonInput<KeyCode>>,
+    current_mode: Res<State<CameraMode>>,
+    mut next_mode: ResMut<NextState<CameraMode>>,
+) {
+    if keyboard_input.just_pressed(KeyCode::KeyV) {
+        let new_mode = match current_mode.get() {
+            CameraMode::Back => CameraMode::Front,
+            CameraMode::Front => CameraMode::Free,
+            CameraMode::Free => CameraMode::Back,
+        };
+        next_mode.set(new_mode);
+    }
+}
+
 // Система плавной слежки камеры с динамическим сдвигом по X
 fn camera_follow(
     car_query: Query<&Transform, (With<Car>, Without<MainCamera>)>,
@@ -207,8 +224,34 @@ fn camera_follow(
     camera_mode: Res<State<CameraMode>>,
 ) {
     // Работаем только в режиме Follow
-    if *camera_mode.get() != CameraMode::Follow {
+        // Если камера свободная, эта система не работает
+    if *camera_mode.get() == CameraMode::Free {
         return;
+    }
+
+    if let Ok(car_transform) = car_query.get_single() {
+        if let Ok(mut camera_transform) = camera_query.get_single_mut() {
+            let car_forward = car_transform.forward();
+            
+            // Если Back, отступаем назад (-1.0). Если Front, отступаем вперед (1.0)
+            let direction_multiplier = if *camera_mode.get() == CameraMode::Back {
+                -1.0
+            } else {
+                1.0
+            };
+
+            // Считаем целевую позицию
+            let target_camera_pos = car_transform.translation 
+                + car_forward * 12.0 * direction_multiplier 
+                + Vec3::new(0.0, 5.0, 0.0);
+            
+            // Плавное движение
+            camera_transform.translation = camera_transform.translation.lerp(target_camera_pos, 3.0 * time.delta_secs());
+            
+            // Камера смотрит на машину
+            let look_target = car_transform.translation + car_forward * 2.0;
+            camera_transform.look_at(look_target, Vec3::Y);
+        }
     }
 
     if let Ok(car_transform) = car_query.get_single() {
@@ -231,20 +274,24 @@ fn free_look_camera(
     time: Res<Time>,
     mut camera_query: Query<&mut Transform, With<FreeLookCamera>>,
     mut grab_state: ResMut<MouseGrabState>,
-    mut camera_mode: ResMut<NextState<CameraMode>>,
+    camera_mode: Res<State<CameraMode>>,
 ) {
     if let Ok(mut cam_transform) = camera_query.get_single_mut() {
-        // Переключение режима по ПКМ
+        if *camera_mode.get() != CameraMode::Free {
+            grab_state.is_grabbed = false; // Сбрасываем захват мыши
+            mouse_motion.clear();
+            return;
+        }
+
+        // Захват мыши по ПКМ (чтобы курсор не улетал за края экрана)
         if mouse_input.just_pressed(MouseButton::Right) {
             grab_state.is_grabbed = true;
-            camera_mode.set(CameraMode::FreeLook);
         }
         if mouse_input.just_released(MouseButton::Right) {
             grab_state.is_grabbed = false;
-            camera_mode.set(CameraMode::Follow);
         }
 
-        // Работаем только в режиме FreeLook
+        // Если мышь не захвачена, не читаем её движения
         if !grab_state.is_grabbed {
             mouse_motion.clear();
             return;
